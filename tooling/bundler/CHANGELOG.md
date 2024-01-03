@@ -1,5 +1,11 @@
 # Changelog
 
+## \[1.4.9]
+
+### New Features
+
+- [`89911296`](https://www.github.com/tauri-apps/tauri/commit/89911296e475d5c36f3486b9b75232505846e767)([#8259](https://www.github.com/tauri-apps/tauri/pull/8259)) On macOS, support for signing nested .dylib, .app, .xpc and .framework under predefined directories inside the bundled frameworks ("MacOS", "Frameworks", "Plugins", "Helpers", "XPCServices" and "Libraries").
+
 ## \[1.4.8]
 
 ### Enhancements
