@@ -1,5 +1,24 @@
 # Changelog
 
+## \[1.0.0-alpha.9]
+
+### New Features
+
+- [`29ced5ce`](https://www.github.com/tauri-apps/tauri/commit/29ced5ceec40b2934094ade2db9a8855f294e1d1)([#8159](https://www.github.com/tauri-apps/tauri/pull/8159)) Added download event closure via `PendingWindow::download_handler`.
+
+### Bug Fixes
+
+- [`0d0501cb`](https://www.github.com/tauri-apps/tauri/commit/0d0501cb7b5e767c51a3697a148acfe84211a7ad)([#8394](https://www.github.com/tauri-apps/tauri/pull/8394)) Use `arboard` instead of `tao` clipboard implementation to prevent a crash.
+
+### What's Changed
+
+- [`cb640c8e`](https://www.github.com/tauri-apps/tauri/commit/cb640c8e949a3d78d78162e2e61b51bf8afae983)([#8393](https://www.github.com/tauri-apps/tauri/pull/8393)) Fix `RunEvent::WindowEvent(event: WindowEvent::FileDrop(FileDropEvent))` never triggered and always prevent default OS behavior when `disable_file_drop_handler` is not used.
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-alpha.13`
+- Upgraded to `tauri-runtime@1.0.0-alpha.8`
+
 ## \[1.0.0-alpha.8]
 
 ### Dependencies
