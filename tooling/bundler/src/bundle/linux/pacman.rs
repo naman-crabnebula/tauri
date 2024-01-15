@@ -3,7 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
-pub mod appimage;
-pub mod debian;
-pub mod pacman;
-pub mod rpm;
+use crate::Settings;
+
+use std::path::PathBuf;
+
+/// Bundles the project.
+/// Not implemented yet.
+pub fn bundle_project(_settings: &Settings) -> crate::Result<Vec<PathBuf>> {
+  unimplemented!();
+}
