@@ -82,6 +82,7 @@
           "deb": {
             "files": {}
           },
+          "pacman": {},
           "rpm": {
             "epoch": 0,
             "files": {},
@@ -1530,7 +1531,7 @@
           "type": "boolean"
         },
         "targets": {
-          "description": "The bundle targets, currently supports [\"deb\", \"rpm\", \"appimage\", \"nsis\", \"msi\", \"app\", \"dmg\", \"updater\"] or \"all\".",
+          "description": "The bundle targets, currently supports [\"deb\", \"rpm\", \"appimage\", \"pacman\", \"nsis\", \"msi\", \"app\", \"dmg\", \"updater\"] or \"all\".",
           "default": "all",
           "allOf": [
             {
@@ -1658,6 +1659,7 @@
             "deb": {
               "files": {}
             },
+            "pacman": {},
             "rpm": {
               "epoch": 0,
               "files": {},
@@ -1767,6 +1769,13 @@
           "type": "string",
           "enum": [
             "appimage"
+          ]
+        },
+        {
+          "description": "Arch Linux Package for Pacman (PKGBUILD)",
+          "type": "string",
+          "enum": [
+            "pacman"
           ]
         },
         {
@@ -2403,6 +2412,15 @@
               "$ref": "#/definitions/RpmConfig"
             }
           ]
+        },
+        "pacman": {
+          "description": "Configuration for the Pacman bundle.",
+          "default": {},
+          "allOf": [
+            {
+              "$ref": "#/definitions/PacmanConfig"
+            }
+          ]
         }
       },
       "additionalProperties": false
@@ -2520,6 +2538,63 @@
             "string",
             "null"
           ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PacmanConfig": {
+      "description": "Configuration for Pacman bundles.",
+      "type": "object",
+      "properties": {
+        "depends": {
+          "description": "List of Pacman dependencies.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "provides": {
+          "description": "Additional packages that are provided by this app.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "conflicts": {
+          "description": "Packages that conflict with the app.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "replaces": {
+          "description": "Only use if this app replaces some obsolete packages",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "source": {
+          "description": "Source of the package to be stored at PKGBUILD. PKGBUILD is a bash script, so version can be referred as ${pkgver}",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false

@@ -22,7 +22,7 @@ pub use self::{
   settings::{
     AppImageSettings, BundleBinary, BundleSettings, DebianSettings, DmgSettings, MacOsSettings,
     PackageSettings, PackageType, Position, RpmSettings, Settings, SettingsBuilder, Size,
-    UpdaterSettings,
+    UpdaterSettings, PacmanSettings,
   },
 };
 #[cfg(target_os = "macos")]
@@ -122,6 +122,8 @@ pub fn bundle_project(settings: Settings) -> crate::Result<Vec<Bundle>> {
       PackageType::Rpm => linux::rpm::bundle_project(&settings)?,
       #[cfg(target_os = "linux")]
       PackageType::AppImage => linux::appimage::bundle_project(&settings)?,
+      #[cfg(target_os = "linux")]
+      PackageType::Pacman => linux::pacman::bundle_project(&settings)?,
 
       // updater is dependant of multiple bundle, we send our bundles to prevent rebuilding
       PackageType::Updater => {

@@ -34,6 +34,8 @@ pub enum PackageType {
   Rpm,
   /// The Linux AppImage bundle (.AppImage).
   AppImage,
+  /// The Linux Pacman bundle (PKGBUILD).
+  Pacman,
   /// The macOS DMG bundle (.dmg).
   Dmg,
   /// The Updater bundle.
@@ -46,6 +48,7 @@ impl From<BundleType> for PackageType {
       BundleType::Deb => Self::Deb,
       BundleType::Rpm => Self::Rpm,
       BundleType::AppImage => Self::AppImage,
+      BundleType::Pacman => Self::Pacman,
       BundleType::Msi => Self::WindowsMsi,
       BundleType::Nsis => Self::Nsis,
       BundleType::App => Self::MacOsBundle,
@@ -57,7 +60,7 @@ impl From<BundleType> for PackageType {
 
 impl PackageType {
   /// Maps a short name to a PackageType.
-  /// Possible values are "deb", "ios", "msi", "app", "rpm", "appimage", "dmg", "updater".
+  /// Possible values are "deb", "ios", "msi", "app", "rpm", "appimage", "pacman", "dmg", "updater".
   pub fn from_short_name(name: &str) -> Option<PackageType> {
     // Other types we may eventually want to support: apk.
     match name {
@@ -68,6 +71,7 @@ impl PackageType {
       "app" => Some(PackageType::MacOsBundle),
       "rpm" => Some(PackageType::Rpm),
       "appimage" => Some(PackageType::AppImage),
+      "pacman" => Some(PackageType::Pacman),
       "dmg" => Some(PackageType::Dmg),
       "updater" => Some(PackageType::Updater),
       _ => None,
@@ -85,6 +89,7 @@ impl PackageType {
       PackageType::MacOsBundle => "app",
       PackageType::Rpm => "rpm",
       PackageType::AppImage => "appimage",
+      PackageType::Pacman => "pacman",
       PackageType::Dmg => "dmg",
       PackageType::Updater => "updater",
     }
@@ -110,6 +115,7 @@ impl PackageType {
       PackageType::Deb => 0,
       PackageType::Rpm => 0,
       PackageType::AppImage => 0,
+      PackageType::Pacman => 0,
       PackageType::Dmg => 1,
       PackageType::Updater => 2,
     }
@@ -129,6 +135,8 @@ const ALL_PACKAGE_TYPES: &[PackageType] = &[
   PackageType::MacOsBundle,
   #[cfg(target_os = "linux")]
   PackageType::Rpm,
+  #[cfg(target_os = "linux")]
+  PackageType::Pacman,
   #[cfg(target_os = "macos")]
   PackageType::Dmg,
   #[cfg(target_os = "linux")]
@@ -195,6 +203,24 @@ pub struct DebianSettings {
 pub struct AppImageSettings {
   /// The files to include in the Appimage Binary.
   pub files: HashMap<PathBuf, PathBuf>,
+}
+
+/// The Linux Pacman bundle settings.
+/// Must Read https://wiki.archlinux.org/title/PKGBUILD
+#[derive(Clone, Debug, Default)]
+pub struct PacmanSettings {
+  // Arch Linux Specific settings.
+  /// List of Pacman dependencies.
+  pub depends: Option<Vec<String>>,
+  /// Additional packages that are provided by this app.
+  pub provides: Option<Vec<String>>,
+  /// Packages that conflict with the app.
+  pub conflicts: Option<Vec<String>>,
+  /// Only use if this app replaces some obsolete packages
+  pub replaces: Option<Vec<String>>,
+  /// Source of the package to be stored at PKGBUILD.
+  /// PKGBUILD is a bash script, so version can be referred as ${pkgver}
+  pub source: Option<Vec<String>>,
 }
 
 /// The RPM bundle settings.
@@ -491,6 +517,8 @@ pub struct BundleSettings {
   pub deb: DebianSettings,
   /// AppImage-specific settings.
   pub appimage: AppImageSettings,
+  /// Pacman-specific settings.
+  pub pacman: PacmanSettings,
   /// Rpm-specific settings.
   pub rpm: RpmSettings,
   /// DMG-specific settings.
@@ -758,7 +786,7 @@ impl Settings {
     let mut platform_types = match target_os.as_str() {
       "macos" => vec![PackageType::MacOsBundle, PackageType::Dmg],
       "ios" => vec![PackageType::IosBundle],
-      "linux" => vec![PackageType::Deb, PackageType::Rpm, PackageType::AppImage],
+      "linux" => vec![PackageType::Deb, PackageType::Rpm, PackageType::AppImage, PackageType::Pacman],
       "windows" => vec![PackageType::WindowsMsi, PackageType::Nsis],
       os => {
         return Err(crate::Error::GenericError(format!(
@@ -950,6 +978,11 @@ impl Settings {
   /// Returns the appimage settings.
   pub fn appimage(&self) -> &AppImageSettings {
     &self.bundle_settings.appimage
+  }
+
+  /// Returns the pacman settings.
+  pub fn pacman(&self) -> &PacmanSettings {
+    &self.bundle_settings.pacman
   }
 
   /// Returns the RPM settings.

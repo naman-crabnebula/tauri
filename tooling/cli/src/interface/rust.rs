@@ -23,7 +23,7 @@ use notify::RecursiveMode;
 use notify_debouncer_mini::new_debouncer;
 use serde::{Deserialize, Deserializer};
 use tauri_bundler::{
-  AppCategory, AppImageSettings, BundleBinary, BundleSettings, DebianSettings, DmgSettings,
+  AppCategory, AppImageSettings, BundleBinary, BundleSettings, DebianSettings, DmgSettings, PacmanSettings,
   MacOsSettings, PackageSettings, Position, RpmSettings, Size, UpdaterSettings, WindowsSettings,
 };
 use tauri_utils::config::{parse::is_configuration_file, DeepLinkProtocol};
@@ -1215,6 +1215,8 @@ fn tauri_config_to_bundle_settings(
   let mut depends_deb = config.linux.deb.depends.unwrap_or_default();
   #[allow(unused_mut)]
   let mut depends_rpm = config.linux.rpm.depends.unwrap_or_default();
+  #[allow(unused_mut)]
+  let mut depends_pacman = config.linux.pacman.depends.unwrap_or_default();
 
   // set env vars used by the bundler and inject dependencies
   #[cfg(target_os = "linux")]
@@ -1272,6 +1274,7 @@ fn tauri_config_to_bundle_settings(
         requires.push_str("()(64bit)");
       }
       depends_rpm.push(requires);
+      depends_pacman.push(requires);
     }
   }
 
@@ -1355,6 +1358,13 @@ fn tauri_config_to_bundle_settings(
       files: config.linux.rpm.files,
       desktop_template: config.linux.rpm.desktop_template,
     },
+    pacman: PacmanSettings {
+      depends: if depends_pacman.is_empty() {
+        None
+      } else {
+        Some(depends_pacman)
+      },
+    }
     dmg: DmgSettings {
       background: config.macos.dmg.background,
       window_position: config

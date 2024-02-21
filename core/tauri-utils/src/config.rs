@@ -109,6 +109,8 @@ pub enum BundleType {
   Rpm,
   /// The AppImage bundle (.appimage).
   AppImage,
+  /// Arch Linux Package for Pacman (PKGBUILD)
+  Pacman,
   /// The Microsoft Installer bundle (.msi).
   Msi,
   /// The NSIS bundle (.exe).
@@ -130,6 +132,7 @@ impl Display for BundleType {
         Self::Deb => "deb",
         Self::Rpm => "rpm",
         Self::AppImage => "appimage",
+        Self::Pacman => "pacman",
         Self::Msi => "msi",
         Self::Nsis => "nsis",
         Self::App => "app",
@@ -159,6 +162,7 @@ impl<'de> Deserialize<'de> for BundleType {
       "deb" => Ok(Self::Deb),
       "rpm" => Ok(Self::Rpm),
       "appimage" => Ok(Self::AppImage),
+      "pacman" => Ok(Self::Pacman),
       "msi" => Ok(Self::Msi),
       "nsis" => Ok(Self::Nsis),
       "app" => Ok(Self::App),
@@ -324,6 +328,25 @@ pub struct DebConfig {
   pub changelog: Option<PathBuf>,
 }
 
+/// Configuration for Pacman bundles.
+#[skip_serializing_none]
+#[derive(Debug, Default, PartialEq, Eq, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "schema", derive(JsonSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PacmanConfig {
+  /// List of Pacman dependencies.
+  pub depends: Option<Vec<String>>,
+  /// Additional packages that are provided by this app.
+  pub provides: Option<Vec<String>>,
+  /// Packages that conflict with the app.
+  pub conflicts: Option<Vec<String>>,
+  /// Only use if this app replaces some obsolete packages
+  pub replaces: Option<Vec<String>>,
+  /// Source of the package to be stored at PKGBUILD.
+  /// PKGBUILD is a bash script, so version can be referred as ${pkgver}
+  pub source: Option<Vec<String>>,
+}
+
 /// Configuration for Linux bundles.
 ///
 /// See more: <https://tauri.app/v1/api/config#linuxconfig>
@@ -341,6 +364,9 @@ pub struct LinuxConfig {
   /// Configuration for the RPM bundle.
   #[serde(default)]
   pub rpm: RpmConfig,
+  /// Configuration for the Pacman bundle.
+  #[serde(default)]
+  pub pacman: PacmanConfig,
 }
 
 /// Configuration for RPM bundles.
@@ -939,7 +965,7 @@ pub struct BundleConfig {
   /// Whether Tauri should bundle your application or just output the executable.
   #[serde(default)]
   pub active: bool,
-  /// The bundle targets, currently supports ["deb", "rpm", "appimage", "nsis", "msi", "app", "dmg", "updater"] or "all".
+  /// The bundle targets, currently supports ["deb", "rpm", "appimage", "pacman", "nsis", "msi", "app", "dmg", "updater"] or "all".
   #[serde(default)]
   pub targets: BundleTarget,
   /// The application's publisher. Defaults to the second element in the identifier string.

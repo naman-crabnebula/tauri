@@ -12,7 +12,7 @@
 //! - macOS
 //!   - DMG and App bundles
 //! - Linux
-//!   - Appimage, Debian and RPM packages
+//!   - Appimage, Debian, RPM and Pacman packages
 //! - Windows
 //!   - MSI using WiX
 
