@@ -786,7 +786,12 @@ impl Settings {
     let mut platform_types = match target_os.as_str() {
       "macos" => vec![PackageType::MacOsBundle, PackageType::Dmg],
       "ios" => vec![PackageType::IosBundle],
-      "linux" => vec![PackageType::Deb, PackageType::Rpm, PackageType::AppImage, PackageType::Pacman],
+      "linux" => vec![
+        PackageType::Deb,
+        PackageType::Rpm,
+        PackageType::AppImage,
+        PackageType::Pacman,
+      ],
       "windows" => vec![PackageType::WindowsMsi, PackageType::Nsis],
       os => {
         return Err(crate::Error::GenericError(format!(

@@ -21,8 +21,8 @@ pub use self::{
   category::AppCategory,
   settings::{
     AppImageSettings, BundleBinary, BundleSettings, DebianSettings, DmgSettings, MacOsSettings,
-    PackageSettings, PackageType, Position, RpmSettings, Settings, SettingsBuilder, Size,
-    UpdaterSettings, PacmanSettings,
+    PackageSettings, PackageType, PacmanSettings, Position, RpmSettings, Settings, SettingsBuilder,
+    Size, UpdaterSettings,
   },
 };
 #[cfg(target_os = "macos")]
