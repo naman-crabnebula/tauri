@@ -3616,7 +3616,7 @@ checksum = "69758bda2e78f098e4ccb393021a0963bb3442eac05f135c30f61b7370bbafae"
 
 [[package]]
 name = "tauri"
-version = "2.0.0-beta.4"
+version = "2.0.0-beta.6"
 dependencies = [
  "anyhow",
  "bytes",
@@ -3674,7 +3674,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-build"
-version = "2.0.0-beta.3"
+version = "2.0.0-beta.4"
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -3696,7 +3696,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-codegen"
-version = "2.0.0-beta.3"
+version = "2.0.0-beta.4"
 dependencies = [
  "base64",
  "brotli",
@@ -3733,7 +3733,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-macros"
-version = "2.0.0-beta.3"
+version = "2.0.0-beta.4"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -3745,7 +3745,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin"
-version = "2.0.0-beta.3"
+version = "2.0.0-beta.4"
 dependencies = [
  "anyhow",
  "glob",
@@ -3760,7 +3760,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-runtime"
-version = "2.0.0-beta.3"
+version = "2.0.0-beta.4"
 dependencies = [
  "gtk",
  "http",
@@ -3776,7 +3776,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-runtime-wry"
-version = "2.0.0-beta.3"
+version = "2.0.0-beta.4"
 dependencies = [
  "cocoa",
  "gtk",
@@ -3789,6 +3789,7 @@ dependencies = [
  "tauri-runtime",
  "tauri-utils",
  "tracing",
+ "url",
  "webkit2gtk",
  "webview2-com",
  "windows 0.52.0",
@@ -3797,7 +3798,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-utils"
-version = "2.0.0-beta.3"
+version = "2.0.0-beta.4"
 dependencies = [
  "aes-gcm",
  "brotli",
@@ -4935,9 +4936,9 @@ dependencies = [
 
 [[package]]
 name = "wry"
-version = "0.36.0"
+version = "0.37.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a9e7b81968555303086ef882a0c213896a76099de4ed0b86a798775c2d54304"
+checksum = "8b717040ba9771fd88eb428c6ea6b555f8e734ff8534f02c13e8f10d97f5935e"
 dependencies = [
  "base64",
  "block",
@@ -4961,6 +4962,7 @@ dependencies = [
  "objc",
  "objc_id",
  "once_cell",
+ "percent-encoding",
  "raw-window-handle 0.6.0",
  "serde",
  "serde_json",
@@ -4969,7 +4971,6 @@ dependencies = [
  "tao-macros",
  "thiserror",
  "tracing",
- "url",
  "webkit2gtk",
  "webkit2gtk-sys",
  "webview2-com",

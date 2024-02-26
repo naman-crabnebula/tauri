@@ -12,6 +12,9 @@ use tauri_runtime::{
 };
 pub use tauri_utils::{config::Color, WindowEffect as Effect, WindowEffectState as EffectState};
 
+#[cfg(desktop)]
+pub use crate::runtime::ProgressBarStatus;
+
 use crate::{
   app::AppHandle,
   event::{Event, EventId, EventTarget},
@@ -20,7 +23,7 @@ use crate::{
   runtime::{
     monitor::Monitor as RuntimeMonitor,
     window::{DetachedWindow, PendingWindow, WindowBuilder as _},
-    ProgressBarStatus, RuntimeHandle, WindowDispatch,
+    RuntimeHandle, WindowDispatch,
   },
   sealed::ManagerBase,
   sealed::RuntimeOrDispatch,
@@ -333,7 +336,7 @@ tauri::Builder::default()
       .webviews_lock()
       .values()
       .map(|w| WebviewLabelDef {
-        window_label: w.window.label().to_string(),
+        window_label: w.window().label().to_string(),
         label: w.label().to_string(),
       })
       .collect::<Vec<_>>();
@@ -988,7 +991,7 @@ impl<R: Runtime> Window<R> {
       .webview
       .webviews_lock()
       .values()
-      .filter(|w| w.window() == self)
+      .filter(|w| w.window_label() == self.label())
       .cloned()
       .collect()
   }
