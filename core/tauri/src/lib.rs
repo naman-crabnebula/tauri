@@ -680,6 +680,7 @@ pub trait Manager<R: Runtime>: sealed::ManagerBase<R> {
   }
 
   /// Fetch a single window from the manager.
+  /// Replaced by [get_webview_window](get_webview_window) in Tauri 2.0
   #[cfg(feature = "unstable")]
   #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
   fn get_window(&self, label: &str) -> Option<Window<R>> {
@@ -694,6 +695,7 @@ pub trait Manager<R: Runtime>: sealed::ManagerBase<R> {
   }
 
   /// Fetch all managed windows.
+  /// Replaced by [webview_windows](webview_windows) in Tauri 2.0
   #[cfg(feature = "unstable")]
   #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
   fn windows(&self) -> HashMap<String, Window<R>> {
@@ -701,6 +703,7 @@ pub trait Manager<R: Runtime>: sealed::ManagerBase<R> {
   }
 
   /// Fetch a single webview from the manager.
+  /// Replaced by [get_webview_window](get_webview_window) in Tauri 2.0
   #[cfg(feature = "unstable")]
   #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
   fn get_webview(&self, label: &str) -> Option<Webview<R>> {
@@ -708,6 +711,7 @@ pub trait Manager<R: Runtime>: sealed::ManagerBase<R> {
   }
 
   /// Fetch all managed webviews.
+  /// Replaced by [webview_windows](webview_windows) in Tauri 2.0
   #[cfg(feature = "unstable")]
   #[cfg_attr(docsrs, doc(cfg(feature = "unstable")))]
   fn webviews(&self) -> HashMap<String, Webview<R>> {
