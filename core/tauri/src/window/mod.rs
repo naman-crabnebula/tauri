@@ -7,8 +7,9 @@
 pub(crate) mod plugin;
 
 use tauri_runtime::{
+  dpi::{PhysicalPosition, PhysicalSize},
   webview::PendingWebview,
-  window::dpi::{PhysicalPosition, PhysicalSize},
+  window::WindowSizeConstraints,
 };
 pub use tauri_utils::{config::Color, WindowEffect as Effect, WindowEffectState as EffectState};
 
@@ -25,18 +26,18 @@ use crate::{
     window::{DetachedWindow, PendingWindow, WindowBuilder as _},
     RuntimeHandle, WindowDispatch,
   },
-  sealed::ManagerBase,
-  sealed::RuntimeOrDispatch,
+  sealed::{ManagerBase, RuntimeOrDispatch},
   utils::config::{WindowConfig, WindowEffectsConfig},
   webview::WebviewBuilder,
-  EventLoopMessage, Manager, Runtime, Theme, Webview, WindowEvent,
+  Emitter, EventLoopMessage, Listener, Manager, ResourceTable, Runtime, Theme, Webview,
+  WindowEvent,
 };
 #[cfg(desktop)]
 use crate::{
   image::Image,
   menu::{ContextMenu, Menu, MenuId},
   runtime::{
-    window::dpi::{Position, Size},
+    dpi::{Position, Size},
     UserAttentionType,
   },
   CursorIcon,
@@ -51,7 +52,7 @@ use tauri_macros::default_runtime;
 use std::{
   fmt,
   hash::{Hash, Hasher},
-  sync::Arc,
+  sync::{Arc, Mutex, MutexGuard},
 };
 
 /// Monitor descriptor.
@@ -241,7 +242,7 @@ async fn reopen_window(app: tauri::AppHandle) {
   ///
   /// [the Webview2 issue]: https://github.com/tauri-apps/wry/issues/583
   pub fn from_config(manager: &'a M, config: &WindowConfig) -> crate::Result<Self> {
-    #[cfg_attr(not(unstable), allow(unused_mut))]
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut builder = Self {
       manager,
       label: config.label.clone(),
@@ -391,7 +392,7 @@ tauri::Builder::default()
     #[cfg(desktop)]
     let handler = app_manager
       .menu
-      .prepare_window_menu_creation_handler(window_menu.as_ref());
+      .prepare_window_menu_creation_handler(window_menu.as_ref(), self.window_builder.get_theme());
     #[cfg(not(desktop))]
     #[allow(clippy::type_complexity)]
     let handler: Option<Box<dyn Fn(tauri_runtime::window::RawWindow<'_>) + Send>> = None;
@@ -424,6 +425,23 @@ tauri::Builder::default()
     if let Some(effects) = self.window_effects {
       crate::vibrancy::set_window_effects(&window, Some(effects))?;
     }
+
+    let app_manager = self.manager.manager_owned();
+    let window_label = window.label().to_string();
+    // run on the main thread to fix a deadlock on webview.eval if the tracing feature is enabled
+    let _ = window.run_on_main_thread(move || {
+      let _ = app_manager.webview.eval_script_all(format!(
+        "window.__TAURI_INTERNALS__.metadata.windows = {window_labels_array}.map(function (label) {{ return {{ label: label }} }})",
+        window_labels_array = serde_json::to_string(&app_manager.window.labels()).unwrap(),
+      ));
+
+      let _ = app_manager.emit(
+        "tauri://window-created",
+        Some(crate::webview::CreatedEvent {
+          label: window_label,
+        }),
+      );
+    });
 
     Ok(window)
   }
@@ -472,6 +490,13 @@ impl<'a, R: Runtime, M: Manager<R>> WindowBuilder<'a, R, M> {
   #[must_use]
   pub fn max_inner_size(mut self, max_width: f64, max_height: f64) -> Self {
     self.window_builder = self.window_builder.max_inner_size(max_width, max_height);
+    self
+  }
+
+  /// Window inner size constraints.
+  #[must_use]
+  pub fn inner_size_constraints(mut self, constraints: WindowSizeConstraints) -> Self {
+    self.window_builder = self.window_builder.inner_size_constraints(constraints);
     self
   }
 
@@ -864,7 +889,8 @@ pub struct Window<R: Runtime> {
   pub(crate) app_handle: AppHandle<R>,
   // The menu set for this window
   #[cfg(desktop)]
-  pub(crate) menu: Arc<std::sync::Mutex<Option<WindowMenu<R>>>>,
+  pub(crate) menu: Arc<Mutex<Option<WindowMenu<R>>>>,
+  pub(crate) resources_table: Arc<Mutex<ResourceTable>>,
 }
 
 impl<R: Runtime> std::fmt::Debug for Window<R> {
@@ -885,6 +911,14 @@ impl<R: Runtime> raw_window_handle::HasWindowHandle for Window<R> {
   }
 }
 
+impl<R: Runtime> raw_window_handle::HasDisplayHandle for Window<R> {
+  fn display_handle(
+    &self,
+  ) -> std::result::Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+    self.app_handle.display_handle()
+  }
+}
+
 impl<R: Runtime> Clone for Window<R> {
   fn clone(&self) -> Self {
     Self {
@@ -893,6 +927,7 @@ impl<R: Runtime> Clone for Window<R> {
       app_handle: self.app_handle.clone(),
       #[cfg(desktop)]
       menu: self.menu.clone(),
+      resources_table: self.resources_table.clone(),
     }
   }
 }
@@ -912,7 +947,14 @@ impl<R: Runtime> PartialEq for Window<R> {
   }
 }
 
-impl<R: Runtime> Manager<R> for Window<R> {}
+impl<R: Runtime> Manager<R> for Window<R> {
+  fn resources_table(&self) -> MutexGuard<'_, ResourceTable> {
+    self
+      .resources_table
+      .lock()
+      .expect("poisoned window resources table")
+  }
+}
 
 impl<R: Runtime> ManagerBase<R> for Window<R> {
   fn manager(&self) -> &AppManager<R> {
@@ -935,7 +977,7 @@ impl<R: Runtime> ManagerBase<R> for Window<R> {
 impl<'de, R: Runtime> CommandArg<'de, R> for Window<R> {
   /// Grabs the [`Window`] from the [`CommandItem`]. This will never fail.
   fn from_command(command: CommandItem<'de, R>) -> Result<Self, InvokeError> {
-    Ok(command.message.webview().window().clone())
+    Ok(command.message.webview().window())
   }
 }
 
@@ -954,6 +996,7 @@ impl<R: Runtime> Window<R> {
       app_handle,
       #[cfg(desktop)]
       menu: Arc::new(std::sync::Mutex::new(menu)),
+      resources_table: Default::default(),
     }
   }
 
@@ -1126,7 +1169,12 @@ tauri::Builder::default()
     self.run_on_main_thread(move || {
       #[cfg(windows)]
       if let Ok(hwnd) = window.hwnd() {
-        let _ = menu_.inner().init_for_hwnd(hwnd.0);
+        let theme = window
+          .theme()
+          .map(crate::menu::map_to_menu_theme)
+          .unwrap_or(muda::MenuTheme::Auto);
+
+        let _ = menu_.inner().init_for_hwnd_with_theme(hwnd.0, theme);
       }
       #[cfg(any(
         target_os = "linux",
@@ -1344,17 +1392,17 @@ impl<R: Runtime> Window<R> {
     self.window.dispatcher.is_focused().map_err(Into::into)
   }
 
-  /// Gets the window’s current decoration state.
+  /// Gets the window's current decoration state.
   pub fn is_decorated(&self) -> crate::Result<bool> {
     self.window.dispatcher.is_decorated().map_err(Into::into)
   }
 
-  /// Gets the window’s current resizable state.
+  /// Gets the window's current resizable state.
   pub fn is_resizable(&self) -> crate::Result<bool> {
     self.window.dispatcher.is_resizable().map_err(Into::into)
   }
 
-  /// Gets the window’s native maximize button state
+  /// Gets the window's native maximize button state
   ///
   /// ## Platform-specific
   ///
@@ -1363,7 +1411,7 @@ impl<R: Runtime> Window<R> {
     self.window.dispatcher.is_maximizable().map_err(Into::into)
   }
 
-  /// Gets the window’s native minimize button state
+  /// Gets the window's native minimize button state
   ///
   /// ## Platform-specific
   ///
@@ -1372,7 +1420,7 @@ impl<R: Runtime> Window<R> {
     self.window.dispatcher.is_minimizable().map_err(Into::into)
   }
 
-  /// Gets the window’s native close button state
+  /// Gets the window's native close button state
   ///
   /// ## Platform-specific
   ///
@@ -1399,6 +1447,16 @@ impl<R: Runtime> Window<R> {
       .window
       .dispatcher
       .current_monitor()
+      .map(|m| m.map(Into::into))
+      .map_err(Into::into)
+  }
+
+  /// Returns the monitor that contains the given point.
+  pub fn monitor_from_point(&self, x: f64, y: f64) -> crate::Result<Option<Monitor>> {
+    self
+      .window
+      .dispatcher
+      .monitor_from_point(x, y)
       .map(|m| m.map(Into::into))
       .map_err(Into::into)
   }
@@ -1516,6 +1574,22 @@ impl<R: Runtime> Window<R> {
   /// - **macOS**: Only supported on macOS 10.14+.
   pub fn theme(&self) -> crate::Result<Theme> {
     self.window.dispatcher.theme().map_err(Into::into)
+  }
+}
+
+/// Desktop window getters.
+#[cfg(desktop)]
+impl<R: Runtime> Window<R> {
+  /// Get the cursor position relative to the top-left hand corner of the desktop.
+  ///
+  /// Note that the top-left hand corner of the desktop is not necessarily the same as the screen.
+  /// If the user uses a desktop with multiple monitors,
+  /// the top-left hand corner of the desktop is the top-left hand corner of the main monitor on Windows and macOS
+  /// or the top-left of the leftmost monitor on X11.
+  ///
+  /// The coordinates can be negative if the top-left hand corner of the window is outside of the visible screen region.
+  pub fn cursor_position(&self) -> crate::Result<PhysicalPosition<f64>> {
+    self.app_handle.cursor_position()
   }
 }
 
@@ -1771,7 +1845,7 @@ tauri::Builder::default()
       .map_err(Into::into)
   }
 
-  /// Sets this window's minimum size.
+  /// Sets this window's minimum inner size.
   pub fn set_min_size<S: Into<Size>>(&self, size: Option<S>) -> crate::Result<()> {
     self
       .window
@@ -1780,12 +1854,21 @@ tauri::Builder::default()
       .map_err(Into::into)
   }
 
-  /// Sets this window's maximum size.
+  /// Sets this window's maximum inner size.
   pub fn set_max_size<S: Into<Size>>(&self, size: Option<S>) -> crate::Result<()> {
     self
       .window
       .dispatcher
       .set_max_size(size.map(|s| s.into()))
+      .map_err(Into::into)
+  }
+
+  /// Sets this window's minimum inner width.
+  pub fn set_size_constraints(&self, constriants: WindowSizeConstraints) -> crate::Result<()> {
+    self
+      .window
+      .dispatcher
+      .set_size_constraints(constriants)
       .map_err(Into::into)
   }
 
@@ -1926,17 +2009,16 @@ tauri::Builder::default()
       .set_progress_bar(crate::runtime::ProgressBarState {
         status: progress_state.status,
         progress: progress_state.progress,
-        desktop_filename: Some(format!(
-          "{}.desktop",
-          heck::AsKebabCase(
-            self
-              .config()
-              .product_name
-              .as_deref()
-              .unwrap_or_else(|| self.package_info().crate_name)
-          )
-        )),
+        desktop_filename: Some(format!("{}.desktop", self.package_info().crate_name)),
       })
+      .map_err(Into::into)
+  }
+  /// Sets the title bar style. **macOS only**.
+  pub fn set_title_bar_style(&self, style: tauri_utils::TitleBarStyle) -> crate::Result<()> {
+    self
+      .window
+      .dispatcher
+      .set_title_bar_style(style)
       .map_err(Into::into)
   }
 }
@@ -1955,8 +2037,7 @@ pub struct ProgressBarState {
   pub progress: Option<u64>,
 }
 
-/// Event system APIs.
-impl<R: Runtime> Window<R> {
+impl<R: Runtime> Listener<R> for Window<R> {
   /// Listen to an event on this window.
   ///
   /// # Examples
@@ -1964,7 +2045,7 @@ impl<R: Runtime> Window<R> {
     feature = "unstable",
     doc = r####"
 ```
-use tauri::Manager;
+use tauri::{Manager, Listener};
 
 tauri::Builder::default()
   .setup(|app| {
@@ -1978,11 +2059,27 @@ tauri::Builder::default()
 ```
   "####
   )]
-  pub fn listen<F>(&self, event: impl Into<String>, handler: F) -> EventId
+  fn listen<F>(&self, event: impl Into<String>, handler: F) -> EventId
   where
     F: Fn(Event) + Send + 'static,
   {
     self.manager.listen(
+      event.into(),
+      EventTarget::Window {
+        label: self.label().to_string(),
+      },
+      handler,
+    )
+  }
+
+  /// Listen to an event on this window only once.
+  ///
+  /// See [`Self::listen`] for more information.
+  fn once<F>(&self, event: impl Into<String>, handler: F) -> EventId
+  where
+    F: FnOnce(Event) + Send + 'static,
+  {
+    self.manager.once(
       event.into(),
       EventTarget::Window {
         label: self.label().to_string(),
@@ -1998,7 +2095,7 @@ tauri::Builder::default()
     feature = "unstable",
     doc = r####"
 ```
-use tauri::Manager;
+use tauri::{Manager, Listener};
 
 tauri::Builder::default()
   .setup(|app| {
@@ -2020,24 +2117,97 @@ tauri::Builder::default()
 ```
   "####
   )]
-  pub fn unlisten(&self, id: EventId) {
+  fn unlisten(&self, id: EventId) {
     self.manager.unlisten(id)
   }
+}
 
-  /// Listen to an event on this window only once.
+impl<R: Runtime> Emitter<R> for Window<R> {
+  /// Emits an event to all [targets](EventTarget).
   ///
-  /// See [`Self::listen`] for more information.
-  pub fn once<F>(&self, event: impl Into<String>, handler: F) -> EventId
+  /// # Examples
+  #[cfg_attr(
+    feature = "unstable",
+    doc = r####"
+```
+use tauri::Emitter;
+
+#[tauri::command]
+fn synchronize(window: tauri::Window) {
+  // emits the synchronized event to all webviews
+  window.emit("synchronized", ());
+}
+  ```
+  "####
+  )]
+  fn emit<S: Serialize + Clone>(&self, event: &str, payload: S) -> crate::Result<()> {
+    self.manager.emit(event, payload)
+  }
+
+  /// Emits an event to all [targets](EventTarget) matching the given target.
+  ///
+  /// # Examples
+  #[cfg_attr(
+    feature = "unstable",
+    doc = r####"
+```
+use tauri::{Emitter, EventTarget};
+
+#[tauri::command]
+fn download(window: tauri::Window) {
+  for i in 1..100 {
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    // emit a download progress event to all listeners
+    window.emit_to(EventTarget::any(), "download-progress", i);
+    // emit an event to listeners that used App::listen or AppHandle::listen
+    window.emit_to(EventTarget::app(), "download-progress", i);
+    // emit an event to any webview/window/webviewWindow matching the given label
+    window.emit_to("updater", "download-progress", i); // similar to using EventTarget::labeled
+    window.emit_to(EventTarget::labeled("updater"), "download-progress", i);
+    // emit an event to listeners that used WebviewWindow::listen
+    window.emit_to(EventTarget::webview_window("updater"), "download-progress", i);
+  }
+}
+```
+"####
+  )]
+  fn emit_to<I, S>(&self, target: I, event: &str, payload: S) -> crate::Result<()>
   where
-    F: FnOnce(Event) + Send + 'static,
+    I: Into<EventTarget>,
+    S: Serialize + Clone,
   {
-    self.manager.once(
-      event.into(),
-      EventTarget::Window {
-        label: self.label().to_string(),
-      },
-      handler,
-    )
+    self.manager.emit_to(target, event, payload)
+  }
+
+  /// Emits an event to all [targets](EventTarget) based on the given filter.
+  ///
+  /// # Examples
+  #[cfg_attr(
+    feature = "unstable",
+    doc = r####"
+```
+use tauri::{Emitter, EventTarget};
+
+#[tauri::command]
+fn download(window: tauri::Window) {
+  for i in 1..100 {
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    // emit a download progress event to the updater window
+    window.emit_filter("download-progress", i, |t| match t {
+      EventTarget::WebviewWindow { label } => label == "main",
+      _ => false,
+    });
+  }
+}
+  ```
+  "####
+  )]
+  fn emit_filter<S, F>(&self, event: &str, payload: S, filter: F) -> crate::Result<()>
+  where
+    S: Serialize + Clone,
+    F: Fn(&EventTarget) -> bool,
+  {
+    self.manager.emit_filter(event, payload, filter)
   }
 }
 

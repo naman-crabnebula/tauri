@@ -39,8 +39,10 @@
 //!             cmd: "ping".into(),
 //!             callback: tauri::ipc::CallbackFn(0),
 //!             error: tauri::ipc::CallbackFn(1),
+//!             url: "http://tauri.localhost".parse().unwrap(),
 //!             body: tauri::ipc::InvokeBody::default(),
 //!             headers: Default::default(),
+//!             invoke_key: tauri::test::INVOKE_KEY.to_string(),
 //!         },
 //!     ).map(|b| b.deserialize::<String>().unwrap());
 //! }
@@ -51,33 +53,37 @@
 mod mock_runtime;
 pub use mock_runtime::*;
 use serde::Serialize;
+use serialize_to_javascript::DefaultTemplate;
 
 use std::{borrow::Cow, collections::HashMap, fmt::Debug};
 
 use crate::{
   ipc::{InvokeBody, InvokeError, InvokeResponse, RuntimeAuthority},
   webview::InvokeRequest,
-  App, Builder, Context, Pattern, Webview,
+  App, Assets, Builder, Context, Pattern, Runtime, Webview,
 };
 use tauri_utils::{
   acl::resolved::Resolved,
-  assets::{AssetKey, Assets, CspHash},
+  assets::{AssetKey, CspHash},
   config::{AppConfig, Config},
 };
 
+/// The invoke key used for tests.
+pub const INVOKE_KEY: &str = "__invoke-key__";
+
 /// An empty [`Assets`] implementation.
 pub struct NoopAsset {
-  assets: HashMap<&'static str, &'static [u8]>,
+  assets: HashMap<String, Vec<u8>>,
   csp_hashes: Vec<CspHash<'static>>,
 }
 
-impl Assets for NoopAsset {
+impl<R: Runtime> Assets<R> for NoopAsset {
   fn get(&self, key: &AssetKey) -> Option<Cow<'_, [u8]>> {
     None
   }
 
-  fn iter(&self) -> Box<dyn Iterator<Item = (&&str, &&[u8])> + '_> {
-    Box::new(self.assets.iter())
+  fn iter(&self) -> Box<dyn Iterator<Item = (&str, &[u8])> + '_> {
+    Box::new(self.assets.iter().map(|(k, b)| (k.as_str(), b.as_slice())))
   }
 
   fn csp_hashes(&self, html_path: &AssetKey) -> Box<dyn Iterator<Item = CspHash<'_>> + '_> {
@@ -94,7 +100,7 @@ pub fn noop_assets() -> NoopAsset {
 }
 
 /// Creates a new [`crate::Context`] for testing.
-pub fn mock_context<A: Assets>(assets: A) -> crate::Context {
+pub fn mock_context<R: Runtime, A: Assets<R>>(assets: A) -> crate::Context<R> {
   Context {
     config: Config {
       schema: None,
@@ -125,8 +131,9 @@ pub fn mock_context<A: Assets>(assets: A) -> crate::Context {
       crate_name: "test",
     },
     _info_plist: (),
-    pattern: Pattern::Brownfield(std::marker::PhantomData),
+    pattern: Pattern::Brownfield,
     runtime_authority: RuntimeAuthority::new(Default::default(), Resolved::default()),
+    plugin_global_api_scripts: None,
   }
 }
 
@@ -146,7 +153,22 @@ pub fn mock_context<A: Assets>(assets: A) -> crate::Context {
 /// }
 /// ```
 pub fn mock_builder() -> Builder<MockRuntime> {
-  Builder::<MockRuntime>::new().enable_macos_default_menu(false)
+  let mut builder = Builder::<MockRuntime>::new().enable_macos_default_menu(false);
+
+  builder.invoke_initialization_script = crate::app::InvokeInitializationScript {
+    process_ipc_message_fn: crate::manager::webview::PROCESS_IPC_MESSAGE_FN,
+    os_name: std::env::consts::OS,
+    fetch_channel_data_command: crate::ipc::channel::FETCH_CHANNEL_DATA_COMMAND,
+    linux_ipc_protocol_enabled: cfg!(feature = "linux-ipc-protocol"),
+    invoke_key: INVOKE_KEY,
+  }
+  .render_default(&Default::default())
+  .unwrap()
+  .into_string();
+
+  builder.invoke_key = INVOKE_KEY.to_string();
+
+  builder
 }
 
 /// Creates a new [`App`] for testing using the [`mock_context`] with a [`noop_assets`].
@@ -185,8 +207,10 @@ pub fn mock_app() -> App<MockRuntime> {
 ///             cmd: "ping".into(),
 ///             callback: tauri::ipc::CallbackFn(0),
 ///             error: tauri::ipc::CallbackFn(1),
+///             url: "http://tauri.localhost".parse().unwrap(),
 ///             body: tauri::ipc::InvokeBody::default(),
 ///             headers: Default::default(),
+///             invoke_key: tauri::test::INVOKE_KEY.to_string(),
 ///         },
 ///       Ok("pong")
 ///     );
@@ -241,8 +265,10 @@ pub fn assert_ipc_response<
 ///             cmd: "ping".into(),
 ///             callback: tauri::ipc::CallbackFn(0),
 ///             error: tauri::ipc::CallbackFn(1),
+///             url: "http://tauri.localhost".parse().unwrap(),
 ///             body: tauri::ipc::InvokeBody::default(),
 ///             headers: Default::default(),
+///             invoke_key: tauri::test::INVOKE_KEY.to_string(),
 ///         },
 ///     );
 ///     assert!(res.is_ok());
@@ -288,7 +314,7 @@ mod tests {
     });
 
     app.run(|_app, event| {
-      println!("{:?}", event);
+      println!("{event:?}");
     });
   }
 }

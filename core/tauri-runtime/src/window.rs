@@ -9,7 +9,8 @@ use crate::{
   Icon, Runtime, UserEvent, WindowDispatch,
 };
 
-use serde::{Deserialize, Deserializer};
+use dpi::PixelUnit;
+use serde::{Deserialize, Deserializer, Serialize};
 use tauri_utils::{config::WindowConfig, Theme};
 #[cfg(windows)]
 use windows::Win32::Foundation::HWND;
@@ -20,11 +21,6 @@ use std::{
   path::PathBuf,
   sync::mpsc::Sender,
 };
-
-use self::dpi::PhysicalPosition;
-
-/// UI scaling utilities.
-pub mod dpi;
 
 /// An event from a window.
 #[derive(Debug, Clone)]
@@ -57,8 +53,8 @@ pub enum WindowEvent {
     /// The window inner size.
     new_inner_size: dpi::PhysicalSize<u32>,
   },
-  /// An event associated with the file drop action.
-  FileDrop(FileDropEvent),
+  /// An event associated with the drag and drop action.
+  DragDrop(DragDropEvent),
   /// The system window theme has changed.
   ///
   /// Applications might wish to react to this to change the theme of the content of the window when the system changes the window theme.
@@ -68,28 +64,35 @@ pub enum WindowEvent {
 /// An event from a window.
 #[derive(Debug, Clone)]
 pub enum WebviewEvent {
-  /// An event associated with the file drop action.
-  FileDrop(FileDropEvent),
+  /// An event associated with the drag and drop action.
+  DragDrop(DragDropEvent),
 }
 
-/// The file drop event payload.
+/// The drag drop event payload.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub enum FileDropEvent {
-  /// The file(s) have been dragged onto the window, but have not been dropped yet.
-  Hovered {
+pub enum DragDropEvent {
+  /// A drag operation has entered the webview.
+  Enter {
+    /// List of paths that are being dragged onto the webview.
     paths: Vec<PathBuf>,
     /// The position of the mouse cursor.
-    position: PhysicalPosition<f64>,
+    position: dpi::PhysicalPosition<f64>,
   },
-  /// The file(s) have been dropped onto the window.
-  Dropped {
+  /// A drag operation is moving over the webview.
+  Over {
+    /// The position of the mouse cursor.
+    position: dpi::PhysicalPosition<f64>,
+  },
+  /// The file(s) have been dropped onto the webview.
+  Drop {
+    /// List of paths that are being dropped onto the window.
     paths: Vec<PathBuf>,
     /// The position of the mouse cursor.
-    position: PhysicalPosition<f64>,
+    position: dpi::PhysicalPosition<f64>,
   },
-  /// The file drop was aborted.
-  Cancelled,
+  /// The drag operation has been cancelled or left the window.
+  Leave,
 }
 
 /// Describes the appearance of the mouse cursor.
@@ -199,6 +202,28 @@ impl<'de> Deserialize<'de> for CursorIcon {
   }
 }
 
+/// Window size constraints
+#[derive(Clone, Copy, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowSizeConstraints {
+  /// The minimum width a window can be, If this is `None`, the window will have no minimum width.
+  ///
+  /// The default is `None`.
+  pub min_width: Option<PixelUnit>,
+  /// The minimum height a window can be, If this is `None`, the window will have no minimum height.
+  ///
+  /// The default is `None`.
+  pub min_height: Option<PixelUnit>,
+  /// The maximum width a window can be, If this is `None`, the window will have no maximum width.
+  ///
+  /// The default is `None`.
+  pub max_width: Option<PixelUnit>,
+  /// The maximum height a window can be, If this is `None`, the window will have no maximum height.
+  ///
+  /// The default is `None`.
+  pub max_height: Option<PixelUnit>,
+}
+
 /// Do **NOT** implement this trait except for use in a custom [`Runtime`]
 ///
 /// This trait is separate from [`WindowBuilder`] to prevent "accidental" implementation.
@@ -234,6 +259,10 @@ pub trait WindowBuilder: WindowBuilderBase {
   /// Window max inner size.
   #[must_use]
   fn max_inner_size(self, max_width: f64, max_height: f64) -> Self;
+
+  /// Window inner size constraints.
+  #[must_use]
+  fn inner_size_constraints(self, constraints: WindowSizeConstraints) -> Self;
 
   /// Whether the window is resizable or not.
   /// When resizable is set to false, native window's maximize button is automatically disabled.
@@ -407,6 +436,8 @@ pub trait WindowBuilder: WindowBuilderBase {
 
   /// Whether the icon was set or not.
   fn has_icon(&self) -> bool;
+
+  fn get_theme(&self) -> Option<Theme>;
 }
 
 /// A window that has yet to be built.

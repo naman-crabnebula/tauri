@@ -55,10 +55,12 @@ enum TauriEvent {
   WINDOW_BLUR = 'tauri://blur',
   WINDOW_SCALE_FACTOR_CHANGED = 'tauri://scale-change',
   WINDOW_THEME_CHANGED = 'tauri://theme-changed',
+  WINDOW_CREATED = 'tauri://window-created',
   WEBVIEW_CREATED = 'tauri://webview-created',
-  FILE_DROP = 'tauri://file-drop',
-  FILE_DROP_HOVER = 'tauri://file-drop-hover',
-  FILE_DROP_CANCELLED = 'tauri://file-drop-cancelled'
+  DRAG_ENTER = 'tauri://drag-enter',
+  DRAG_OVER = 'tauri://drag-over',
+  DRAG_DROP = 'tauri://drag-drop',
+  DRAG_LEAVE = 'tauri://drag-leave'
 }
 
 /**
@@ -150,8 +152,9 @@ async function once<T>(
   return listen<T>(
     event,
     (eventData) => {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
+      _unlisten(event, eventData.id)
       handler(eventData)
-      _unlisten(event, eventData.id).catch(() => {})
     },
     options
   )
@@ -191,7 +194,7 @@ async function emit(event: string, payload?: unknown): Promise<void> {
  * @param event Event name. Must include only alphanumeric characters, `-`, `/`, `:` and `_`.
  * @param payload Event payload.
  *
- * @since 1.0.0
+ * @since 2.0.0
  */
 async function emitTo(
   target: EventTarget | string,

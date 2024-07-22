@@ -35,7 +35,7 @@ The list of Tauri's features includes, but is not limited to:
 - Built-in self updater (desktop only)
 - System tray icons
 - Native notifications
-- Localhost free (:fire:)
+- Localhost free (🔥)
 - GitHub action for streamlined CI
 - VS Code extension
 
@@ -48,8 +48,8 @@ Tauri currently supports development and distribution on the following platforms
 | Windows            | 7 and above                                                                                                     |
 | macOS              | 10.15 and above                                                                                                 |
 | Linux              | webkit2gtk 4.0 for Tauri v1 (for example Ubuntu 18.04). webkit2gtk 4.1 for Tauri v2 (for example Ubuntu 22.04). |
-| iOS/iPadOS (alpha) | 9 and above                                                                                                     |
-| Android (alpha)    | 7 and above                                                                                                     |
+| iOS/iPadOS (beta)  | 9 and above                                                                                                     |
+| Android (beta)     | 7 and above                                                                                                     |
 
 ## Contributing
 

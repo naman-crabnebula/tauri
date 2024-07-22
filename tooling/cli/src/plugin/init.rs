@@ -2,17 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
-use crate::helpers::prompts::input;
+use crate::helpers::prompts;
 use crate::Result;
 use crate::{
   helpers::{resolve_tauri_path, template},
   VersionMetadata,
 };
 use anyhow::Context;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use handlebars::{to_json, Handlebars};
 use heck::{ToKebabCase, ToPascalCase, ToSnakeCase};
 use include_dir::{include_dir, Dir};
+use std::ffi::{OsStr, OsString};
 use std::{
   collections::BTreeMap,
   env::current_dir,
@@ -20,7 +21,7 @@ use std::{
   path::{Component, Path, PathBuf},
 };
 
-pub const TEMPLATE_DIR: Dir<'_> = include_dir!("templates/plugin");
+pub const TEMPLATE_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/templates/plugin");
 
 #[derive(Debug, Parser)]
 #[clap(about = "Initialize a Tauri plugin project on an existing directory")]
@@ -53,6 +54,17 @@ pub struct Options {
   /// Whether to initialize Android and iOS projects for the plugin.
   #[clap(long)]
   pub(crate) mobile: bool,
+  /// Type of framework to use for the iOS project.
+  #[clap(long)]
+  pub(crate) ios_framework: Option<IosFrameworkKind>,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum IosFrameworkKind {
+  /// Swift Package Manager project
+  Spm,
+  /// Xcode project
+  Xcode,
 }
 
 impl Options {
@@ -141,7 +153,7 @@ pub fn command(mut options: Options) -> Result<()> {
     }
 
     let plugin_id = if options.android || options.mobile {
-      let plugin_id = input(
+      let plugin_id = prompts::input(
         "What should be the Android Package ID for your plugin?",
         Some(format!("com.plugin.{}", plugin_name)),
         false,
@@ -154,6 +166,8 @@ pub fn command(mut options: Options) -> Result<()> {
     } else {
       None
     };
+
+    let ios_framework = options.ios_framework.unwrap_or(IosFrameworkKind::Spm);
 
     let mut created_dirs = Vec::new();
     template::render_with_generator(
@@ -193,11 +207,26 @@ pub fn command(mut options: Options) -> Result<()> {
                 return Ok(None);
               }
             }
-            "ios" if !(options.ios || options.mobile) => return Ok(None),
-            "webview-dist" | "webview-src" | "package.json" => {
-              if options.no_api {
-                return Ok(None);
-              }
+            "ios-spm" | "ios-xcode" if !(options.ios || options.mobile) => return Ok(None),
+            "ios-spm" if !matches!(ios_framework, IosFrameworkKind::Spm) => return Ok(None),
+            "ios-xcode" if !matches!(ios_framework, IosFrameworkKind::Xcode) => return Ok(None),
+            "ios-spm" | "ios-xcode" => {
+              let folder_name = components.next().unwrap().as_os_str().to_string_lossy();
+              let new_folder_name = folder_name.replace("{{ plugin_name }}", &plugin_name);
+              let new_folder_name = OsString::from(&new_folder_name);
+
+              path = [
+                Component::Normal(OsStr::new("ios")),
+                Component::Normal(&new_folder_name),
+              ]
+              .into_iter()
+              .chain(components)
+              .collect::<PathBuf>();
+            }
+            "guest-js" | "rollup.config.js" | "tsconfig.json" | "package.json"
+              if options.no_api =>
+            {
+              return Ok(None);
             }
             _ => (),
           }
@@ -212,11 +241,19 @@ pub fn command(mut options: Options) -> Result<()> {
         File::create(path).map(Some)
       },
     )
-    .with_context(|| "failed to render plugin Android template")?;
+    .with_context(|| "failed to render plugin template")?;
   }
 
-  std::fs::create_dir(template_target_path.join("permissions"))
+  let permissions_dir = template_target_path.join("permissions");
+  std::fs::create_dir(&permissions_dir)
     .with_context(|| "failed to create `permissions` directory")?;
+
+  let default_permissions = r#"[default]
+description = "Default permissions for the plugin"
+permissions = ["allow-ping"]
+"#;
+  std::fs::write(permissions_dir.join("default.toml"), default_permissions)
+    .with_context(|| "failed to write `permissions/default.toml`")?;
 
   Ok(())
 }

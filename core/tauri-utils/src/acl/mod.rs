@@ -126,18 +126,26 @@ pub struct Commands {
   pub deny: Vec<String>,
 }
 
-/// A restriction of the command/endpoint functionality.
+/// An argument for fine grained behavior control of Tauri commands.
 ///
-/// It can be of any serde serializable type and is used for allowing or preventing certain actions inside a Tauri command.
+/// It can be of any serde serializable type and is used to allow or prevent certain actions inside a Tauri command.
+/// The configured scope is passed to the command and will be enforced by the command implementation.
 ///
-/// The scope is passed to the command and handled/enforced by the command itself.
+/// ## Example
+///
+/// ```json
+/// {
+///   "allow": [{ "path": "$HOME/**" }],
+///   "deny": [{ "path": "$HOME/secret.txt" }]
+/// }
+/// ```
 #[derive(Debug, Default, PartialEq, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Scopes {
   /// Data that defines what is allowed by the scope.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub allow: Option<Vec<Value>>,
-  /// Data that defines what is denied by the scope.
+  /// Data that defines what is denied by the scope. This should be prioritized by validation logic.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub deny: Option<Vec<Value>>,
 }
@@ -164,6 +172,8 @@ pub struct Permission {
   pub identifier: String,
 
   /// Human-readable description of what the permission does.
+  /// Tauri internal convention is to use <h4> headings in markdown content
+  /// for Tauri documentation generation purposes.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub description: Option<String>,
 
@@ -202,7 +212,21 @@ impl FromStr for RemoteUrlPattern {
   type Err = urlpattern::quirks::Error;
 
   fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-    let init = urlpattern::UrlPatternInit::parse_constructor_string::<regex::Regex>(s, None)?;
+    let mut init = urlpattern::UrlPatternInit::parse_constructor_string::<regex::Regex>(s, None)?;
+    if init.search.as_ref().map(|p| p.is_empty()).unwrap_or(true) {
+      init.search.replace("*".to_string());
+    }
+    if init.hash.as_ref().map(|p| p.is_empty()).unwrap_or(true) {
+      init.hash.replace("*".to_string());
+    }
+    if init
+      .pathname
+      .as_ref()
+      .map(|p| p.is_empty() || p == "/")
+      .unwrap_or(true)
+    {
+      init.pathname.replace("*".to_string());
+    }
     let pattern = urlpattern::UrlPattern::parse(init)?;
     Ok(Self(Arc::new(pattern), s.to_string()))
   }
@@ -249,6 +273,46 @@ pub enum ExecutionContext {
     /// The URL trying to access the IPC (URL pattern).
     url: RemoteUrlPattern,
   },
+}
+
+#[cfg(test)]
+mod tests {
+  use crate::acl::RemoteUrlPattern;
+
+  #[test]
+  fn url_pattern_domain_wildcard() {
+    let pattern: RemoteUrlPattern = "http://*".parse().unwrap();
+
+    assert!(pattern.test(&"http://tauri.app/path".parse().unwrap()));
+    assert!(pattern.test(&"http://tauri.app/path?q=1".parse().unwrap()));
+
+    assert!(pattern.test(&"http://localhost/path".parse().unwrap()));
+    assert!(pattern.test(&"http://localhost/path?q=1".parse().unwrap()));
+
+    let pattern: RemoteUrlPattern = "http://*.tauri.app".parse().unwrap();
+
+    assert!(!pattern.test(&"http://tauri.app/path".parse().unwrap()));
+    assert!(!pattern.test(&"http://tauri.app/path?q=1".parse().unwrap()));
+    assert!(pattern.test(&"http://api.tauri.app/path".parse().unwrap()));
+    assert!(pattern.test(&"http://api.tauri.app/path?q=1".parse().unwrap()));
+    assert!(!pattern.test(&"http://localhost/path".parse().unwrap()));
+    assert!(!pattern.test(&"http://localhost/path?q=1".parse().unwrap()));
+  }
+
+  #[test]
+  fn url_pattern_path_wildcard() {
+    let pattern: RemoteUrlPattern = "http://localhost/*".parse().unwrap();
+    assert!(pattern.test(&"http://localhost/path".parse().unwrap()));
+    assert!(pattern.test(&"http://localhost/path?q=1".parse().unwrap()));
+  }
+
+  #[test]
+  fn url_pattern_scheme_wildcard() {
+    let pattern: RemoteUrlPattern = "*://localhost".parse().unwrap();
+    assert!(pattern.test(&"http://localhost/path".parse().unwrap()));
+    assert!(pattern.test(&"https://localhost/path?q=1".parse().unwrap()));
+    assert!(pattern.test(&"custom://localhost/path".parse().unwrap()));
+  }
 }
 
 #[cfg(feature = "build")]

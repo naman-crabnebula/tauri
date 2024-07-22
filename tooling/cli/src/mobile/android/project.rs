@@ -27,7 +27,7 @@ use std::{
   path::{Path, PathBuf},
 };
 
-const TEMPLATE_DIR: Dir<'_> = include_dir!("templates/mobile/android");
+const TEMPLATE_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/templates/mobile/android");
 
 pub fn gen(
   config: &Config,
@@ -109,8 +109,8 @@ pub fn gen(
   );
   map.insert("windows", cfg!(windows));
 
-  let domain = config.app().reverse_domain().replace('.', "/");
-  let package_path = format!("java/{}/{}", domain, config.app().name_snake());
+  let identifier = config.app().reverse_identifier().replace('.', "/");
+  let package_path = format!("java/{}", identifier);
 
   map.insert("package-path", &package_path);
 

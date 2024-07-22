@@ -14,6 +14,7 @@ use cargo_mobile2::{
   },
   config::app::App,
   dot_cargo,
+  reserved_names::KOTLIN_ONLY_KEYWORDS,
   target::TargetTrait as _,
   util::{
     self,
@@ -23,6 +24,7 @@ use cargo_mobile2::{
 use handlebars::{
   Context, Handlebars, Helper, HelperResult, Output, RenderContext, RenderError, RenderErrorReason,
 };
+use serde::Serialize;
 
 use std::{env::var_os, path::PathBuf};
 
@@ -34,8 +36,23 @@ pub fn command(
 ) -> Result<()> {
   let wrapper = TextWrapper::default();
 
-  exec(target, &wrapper, ci, reinstall_deps, skip_targets_install)
-    .map_err(|e| anyhow::anyhow!("{:#}", e))?;
+  let tauri_init_config = TauriInitConfig {
+    #[cfg(target_os = "macos")]
+    ios: {
+      let (keychain, provisioning_profile) = super::ios::signing_from_env()?;
+      super::ios::init_config(keychain.as_ref(), provisioning_profile.as_ref())?
+    },
+  };
+
+  exec(
+    target,
+    &wrapper,
+    &tauri_init_config,
+    ci,
+    reinstall_deps,
+    skip_targets_install,
+  )
+  .map_err(|e| anyhow::anyhow!("{:#}", e))?;
   Ok(())
 }
 
@@ -76,9 +93,33 @@ pub fn configure_cargo(
   dot_cargo.write(app).map_err(Into::into)
 }
 
+#[cfg(target_os = "macos")]
+#[derive(Serialize)]
+pub enum CodeSignStyle {
+  Manual,
+  Automatic,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct IosInitConfig {
+  pub code_sign_style: CodeSignStyle,
+  pub code_sign_identity: Option<String>,
+  pub team_id: Option<String>,
+  pub provisioning_profile_uuid: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct TauriInitConfig {
+  #[cfg(target_os = "macos")]
+  ios: IosInitConfig,
+}
+
 pub fn exec(
   target: Target,
   wrapper: &TextWrapper,
+  tauri_init_config: &TauriInitConfig,
   #[allow(unused_variables)] non_interactive: bool,
   #[allow(unused_variables)] reinstall_deps: bool,
   skip_targets_install: bool,
@@ -92,6 +133,8 @@ pub fn exec(
 
   let (handlebars, mut map) = handlebars(&app);
 
+  map.insert("tauri", tauri_init_config);
+
   let mut args = std::env::args_os();
 
   let (binary, mut build_args) = args
@@ -103,7 +146,9 @@ pub fn exec(
       if let Some(bin_stem) = bin_path.file_stem() {
         let r = regex::Regex::new("(nodejs|node)\\-?([1-9]*)*$").unwrap();
         if r.is_match(&bin_stem.to_string_lossy()) {
-          if let Some(npm_execpath) = var_os("npm_execpath") {
+          if var_os("PNPM_PACKAGE_NAME").is_some() {
+            return ("pnpm".into(), build_args);
+          } else if let Some(npm_execpath) = var_os("npm_execpath") {
             let manager_stem = PathBuf::from(&npm_execpath)
               .file_stem()
               .unwrap()
@@ -213,6 +258,7 @@ fn handlebars(app: &App) -> (Handlebars<'static>, JsonMap) {
     "reverse-domain-snake-case",
     Box::new(reverse_domain_snake_case),
   );
+  h.register_helper("escape-kotlin-keyword", Box::new(escape_kotlin_keyword));
   // don't mix these up or very bad things will happen to all of us
   h.register_helper("prefix-path", Box::new(prefix_path));
   h.register_helper("unprefix-path", Box::new(unprefix_path));
@@ -356,6 +402,28 @@ fn reverse_domain_snake_case(
   out
     .write(&util::reverse_domain(get_str(helper)).to_snek_case())
     .map_err(Into::into)
+}
+
+fn escape_kotlin_keyword(
+  helper: &Helper,
+  _: &Handlebars,
+  _: &Context,
+  _: &mut RenderContext,
+  out: &mut dyn Output,
+) -> HelperResult {
+  let escaped_result = get_str(helper)
+    .split('.')
+    .map(|s| {
+      if KOTLIN_ONLY_KEYWORDS.contains(&s) {
+        format!("`{}`", s)
+      } else {
+        s.to_string()
+      }
+    })
+    .collect::<Vec<_>>()
+    .join(".");
+
+  out.write(&escaped_result).map_err(Into::into)
 }
 
 fn app_root(ctx: &Context) -> Result<&str, RenderError> {

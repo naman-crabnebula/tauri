@@ -1,5 +1,99 @@
 # Changelog
 
+## \[2.0.0-beta.19]
+
+### Bug Fixes
+
+- [`5d2922985`](https://www.github.com/tauri-apps/tauri/commit/5d2922985801908e4b929a7a0e387806ff02ab89) ([#10268](https://www.github.com/tauri-apps/tauri/pull/10268) by [@lucasfernog](https://www.github.com/tauri-apps/tauri/../../lucasfernog)) Fix icon rewriting always triggering build to rerun due to conflicts between file names.
+
+### What's Changed
+
+- [`4c239729c`](https://www.github.com/tauri-apps/tauri/commit/4c239729c3e1b899ecbc6793c3682848e8de1729) ([#10167](https://www.github.com/tauri-apps/tauri/pull/10167) by [@amrbashir](https://www.github.com/tauri-apps/tauri/../../amrbashir)) Add support for `test = true` in `generate_context!` macro to skip some code generation that could affect some tests, for now it only skips empedding a plist on macOS.
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.19`
+
+## \[2.0.0-beta.18]
+
+### New Features
+
+- [`5b769948a`](https://www.github.com/tauri-apps/tauri/commit/5b769948a81cac333f64c870a470ba6525bd5cd3) ([#9959](https://www.github.com/tauri-apps/tauri/pull/9959)) Add `include_image_codegen` function to help embedding instances of `Image` struct at compile-time in rust to be used with window, menu or tray icons.
+
+### Bug Fixes
+
+- [`1f6e478c8`](https://www.github.com/tauri-apps/tauri/commit/1f6e478c842a16219798b9962718e9ddb969c041) ([#9878](https://www.github.com/tauri-apps/tauri/pull/9878)) Fixes Info.plist rewriting always triggering build to rerun.
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.18`
+
+## \[2.0.0-beta.17]
+
+### What's Changed
+
+- [`ccc3ea729`](https://www.github.com/tauri-apps/tauri/commit/ccc3ea729de205ef467f737f1feeb5bf02d9cd72)([#9646](https://www.github.com/tauri-apps/tauri/pull/9646)) Use `TAURI_ENV_TARGET_TRIPLE` (which is set by `tauri-build`) to determine the target when reading the config file.
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.17`
+
+## \[2.0.0-beta.16]
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.16`
+
+## \[2.0.0-beta.15]
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.15`
+
+## \[2.0.0-beta.14]
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.14`
+
+## \[2.0.0-beta.13]
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.13`
+
+## \[2.0.0-beta.12]
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.12`
+
+## \[2.0.0-beta.11]
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.11`
+
+## \[2.0.0-beta.10]
+
+### New Features
+
+- [`e227fe02f`](https://www.github.com/tauri-apps/tauri/commit/e227fe02f986e145c0731a64693e1c830a9eb5b0)([#9156](https://www.github.com/tauri-apps/tauri/pull/9156)) Allow plugins to define (at compile time) JavaScript that are initialized when `withGlobalTauri` is true.
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.10`
+
+## \[2.0.0-beta.9]
+
+### New Features
+
+- [`ba0206d8a`](https://www.github.com/tauri-apps/tauri/commit/ba0206d8a30a9b43ec5090dcaabd1a23baa1420c)([#9141](https://www.github.com/tauri-apps/tauri/pull/9141)) The `Context` codegen now accepts a `assets` input to define a custom `tauri::Assets` implementation.
+
+### Dependencies
+
+- Upgraded to `tauri-utils@2.0.0-beta.9`
+
 ## \[2.0.0-beta.8]
 
 ### Dependencies

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 pub mod app_paths;
+pub mod cargo;
 pub mod config;
 pub mod flock;
 pub mod framework;
@@ -10,13 +11,22 @@ pub mod npm;
 pub mod prompts;
 pub mod template;
 pub mod updater_signature;
-pub mod web_dev_server;
 
 use std::{
   collections::HashMap,
   path::{Path, PathBuf},
   process::Command,
 };
+
+use anyhow::Context;
+use tauri_utils::config::HookCommand;
+
+use crate::{
+  interface::{AppInterface, Interface},
+  CommandExt,
+};
+
+use self::app_paths::app_dir;
 
 pub fn command_env(debug: bool) -> HashMap<&'static str, String> {
   let mut map = HashMap::new();
@@ -52,4 +62,55 @@ pub fn cross_command(bin: &str) -> Command {
   #[cfg(not(target_os = "windows"))]
   let cmd = Command::new(bin);
   cmd
+}
+
+pub fn run_hook(
+  name: &str,
+  hook: HookCommand,
+  interface: &AppInterface,
+  debug: bool,
+) -> crate::Result<()> {
+  let (script, script_cwd) = match hook {
+    HookCommand::Script(s) if s.is_empty() => (None, None),
+    HookCommand::Script(s) => (Some(s), None),
+    HookCommand::ScriptWithOptions { script, cwd } => (Some(script), cwd.map(Into::into)),
+  };
+  let cwd = script_cwd.unwrap_or_else(|| app_dir().clone());
+  if let Some(script) = script {
+    log::info!(action = "Running"; "{} `{}`", name, script);
+
+    let mut env = command_env(debug);
+    env.extend(interface.env());
+
+    log::debug!("Setting environment for hook {:?}", env);
+
+    #[cfg(target_os = "windows")]
+    let status = Command::new("cmd")
+      .arg("/S")
+      .arg("/C")
+      .arg(&script)
+      .current_dir(cwd)
+      .envs(env)
+      .piped()
+      .with_context(|| format!("failed to run `{}` with `cmd /C`", script))?;
+    #[cfg(not(target_os = "windows"))]
+    let status = Command::new("sh")
+      .arg("-c")
+      .arg(&script)
+      .current_dir(cwd)
+      .envs(env)
+      .piped()
+      .with_context(|| format!("failed to run `{script}` with `sh -c`"))?;
+
+    if !status.success() {
+      anyhow::bail!(
+        "{} `{}` failed with exit code {}",
+        name,
+        script,
+        status.code().unwrap_or_default()
+      );
+    }
+  }
+
+  Ok(())
 }

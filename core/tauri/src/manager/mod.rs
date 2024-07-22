@@ -24,8 +24,8 @@ use crate::{
   event::{assert_event_name_is_valid, Event, EventId, EventTarget, Listeners},
   ipc::{Invoke, InvokeHandler, InvokeResponder, RuntimeAuthority},
   plugin::PluginStore,
-  utils::{assets::Assets, config::Config, PackageInfo},
-  Context, Pattern, Runtime, StateManager, Window,
+  utils::{config::Config, PackageInfo},
+  Assets, Context, Pattern, Runtime, StateManager, Window,
 };
 use crate::{event::EmitArgs, resources::ResourceTable, Webview};
 
@@ -48,7 +48,7 @@ struct CspHashStrings {
 #[allow(clippy::borrowed_box)]
 pub(crate) fn set_csp<R: Runtime>(
   asset: &mut String,
-  assets: &impl std::borrow::Borrow<dyn Assets>,
+  assets: &impl std::borrow::Borrow<dyn Assets<R>>,
   asset_path: &AssetKey,
   manager: &AppManager<R>,
   csp: Csp,
@@ -179,7 +179,7 @@ pub struct AppManager<R: Runtime> {
   pub listeners: Listeners,
   pub state: Arc<StateManager>,
   pub config: Config,
-  pub assets: Box<dyn Assets>,
+  pub assets: Box<dyn Assets<R>>,
 
   pub app_icon: Option<Vec<u8>>,
 
@@ -188,8 +188,14 @@ pub struct AppManager<R: Runtime> {
   /// Application pattern.
   pub pattern: Arc<Pattern>,
 
+  /// Global API scripts collected from plugins.
+  pub plugin_global_api_scripts: Arc<Option<&'static [&'static str]>>,
+
   /// Application Resources Table
   pub(crate) resources_table: Arc<Mutex<ResourceTable>>,
+
+  /// Runtime-generated invoke key.
+  pub(crate) invoke_key: String,
 }
 
 impl<R: Runtime> fmt::Debug for AppManager<R> {
@@ -216,7 +222,7 @@ impl<R: Runtime> fmt::Debug for AppManager<R> {
 impl<R: Runtime> AppManager<R> {
   #[allow(clippy::too_many_arguments, clippy::type_complexity)]
   pub(crate) fn with_handlers(
-    #[allow(unused_mut)] mut context: Context,
+    #[allow(unused_mut)] mut context: Context<R>,
     plugins: PluginStore<R>,
     invoke_handler: Box<InvokeHandler<R>>,
     on_page_load: Option<Arc<OnPageLoad<R>>>,
@@ -229,6 +235,7 @@ impl<R: Runtime> AppManager<R> {
       crate::app::GlobalMenuEventListener<Window<R>>,
     >,
     (invoke_responder, invoke_initialization_script): (Option<Arc<InvokeResponder<R>>>, String),
+    invoke_key: String,
   ) -> Self {
     // generate a random isolation key at runtime
     #[cfg(feature = "isolation")]
@@ -251,6 +258,7 @@ impl<R: Runtime> AppManager<R> {
         event_listeners: Arc::new(webiew_event_listeners),
         invoke_responder,
         invoke_initialization_script,
+        invoke_key: invoke_key.clone(),
       },
       #[cfg(all(desktop, feature = "tray-icon"))]
       tray: tray::TrayManager {
@@ -274,7 +282,9 @@ impl<R: Runtime> AppManager<R> {
       app_icon: context.app_icon,
       package_info: context.package_info,
       pattern: Arc::new(context.pattern),
+      plugin_global_api_scripts: Arc::new(context.plugin_global_api_scripts),
       resources_table: Arc::default(),
+      invoke_key,
     }
   }
 
@@ -320,7 +330,7 @@ impl<R: Runtime> AppManager<R> {
   }
 
   fn csp(&self) -> Option<Csp> {
-    if !crate::dev() {
+    if !crate::is_dev() {
       self.config.app.security.csp.clone()
     } else {
       self
@@ -462,10 +472,6 @@ impl<R: Runtime> AppManager<R> {
     self.listeners().listen(event, target, handler)
   }
 
-  pub fn unlisten(&self, id: EventId) {
-    self.listeners().unlisten(id)
-  }
-
   pub fn once<F: FnOnce(Event) + Send + 'static>(
     &self,
     event: String,
@@ -476,6 +482,33 @@ impl<R: Runtime> AppManager<R> {
     self.listeners().once(event, target, handler)
   }
 
+  pub fn unlisten(&self, id: EventId) {
+    self.listeners().unlisten(id)
+  }
+
+  #[cfg_attr(
+    feature = "tracing",
+    tracing::instrument("app::emit", skip(self, payload))
+  )]
+  pub fn emit<S: Serialize + Clone>(&self, event: &str, payload: S) -> crate::Result<()> {
+    assert_event_name_is_valid(event);
+
+    #[cfg(feature = "tracing")]
+    let _span = tracing::debug_span!("emit::run").entered();
+    let emit_args = EmitArgs::new(event, payload)?;
+
+    let listeners = self.listeners();
+
+    listeners.emit_js(self.webview.webviews_lock().values(), event, &emit_args)?;
+    listeners.emit(emit_args)?;
+
+    Ok(())
+  }
+
+  #[cfg_attr(
+    feature = "tracing",
+    tracing::instrument("app::emit::filter", skip(self, payload, filter))
+  )]
   pub fn emit_filter<S, F>(&self, event: &str, payload: S, filter: F) -> crate::Result<()>
   where
     S: Serialize + Clone,
@@ -501,19 +534,36 @@ impl<R: Runtime> AppManager<R> {
     Ok(())
   }
 
-  pub fn emit<S: Serialize + Clone>(&self, event: &str, payload: S) -> crate::Result<()> {
-    assert_event_name_is_valid(event);
-
+  #[cfg_attr(
+    feature = "tracing",
+    tracing::instrument("app::emit::to", skip(self, target, payload), fields(target))
+  )]
+  pub fn emit_to<I, S>(&self, target: I, event: &str, payload: S) -> crate::Result<()>
+  where
+    I: Into<EventTarget>,
+    S: Serialize + Clone,
+  {
+    let target = target.into();
     #[cfg(feature = "tracing")]
-    let _span = tracing::debug_span!("emit::run").entered();
-    let emit_args = EmitArgs::new(event, payload)?;
+    tracing::Span::current().record("target", format!("{target:?}"));
 
-    let listeners = self.listeners();
+    match target {
+      // if targeting all, emit to all using emit without filter
+      EventTarget::Any => self.emit(event, payload),
 
-    listeners.emit_js(self.webview.webviews_lock().values(), event, &emit_args)?;
-    listeners.emit(emit_args)?;
+      // if targeting any label, emit using emit_filter and filter labels
+      EventTarget::AnyLabel {
+        label: target_label,
+      } => self.emit_filter(event, payload, |t| match t {
+        EventTarget::Window { label }
+        | EventTarget::Webview { label }
+        | EventTarget::WebviewWindow { label } => label == &target_label,
+        _ => false,
+      }),
 
-    Ok(())
+      // otherwise match same target
+      _ => self.emit_filter(event, payload, |t| t == &target),
+    }
   }
 
   pub fn get_window(&self, label: &str) -> Option<Window<R>> {
@@ -540,6 +590,12 @@ impl<R: Runtime> AppManager<R> {
 
   pub(crate) fn on_webview_close(&self, label: &str) {
     self.webview.webviews_lock().remove(label);
+
+    if let Ok(webview_labels_array) = serde_json::to_string(&self.webview.labels()) {
+      let _ = self.webview.eval_script_all(format!(
+          r#"(function () {{ const metadata = window.__TAURI_INTERNALS__.metadata; if (metadata != null) {{ metadata.webviews = {webview_labels_array}.map(function (label) {{ return {{ label: label }} }}) }} }})()"#,
+        ));
+    }
   }
 
   pub fn windows(&self) -> HashMap<String, Window<R>> {
@@ -554,12 +610,15 @@ impl<R: Runtime> AppManager<R> {
     self.webview.webviews_lock().clone()
   }
 
-  /// Resources table managed by the application.
   pub(crate) fn resources_table(&self) -> MutexGuard<'_, ResourceTable> {
     self
       .resources_table
       .lock()
       .expect("poisoned window manager")
+  }
+
+  pub(crate) fn invoke_key(&self) -> &str {
+    &self.invoke_key
   }
 }
 
@@ -615,7 +674,8 @@ mod test {
     test::{mock_app, MockRuntime},
     webview::WebviewBuilder,
     window::WindowBuilder,
-    App, Manager, StateManager, Webview, WebviewWindow, WebviewWindowBuilder, Window, Wry,
+    App, Emitter, Listener, Manager, StateManager, Webview, WebviewWindow, WebviewWindowBuilder,
+    Window, Wry,
   };
 
   use super::AppManager;
@@ -632,7 +692,7 @@ mod test {
 
   #[test]
   fn check_get_url() {
-    let context = generate_context!("test/fixture/src-tauri/tauri.conf.json", crate);
+    let context = generate_context!("test/fixture/src-tauri/tauri.conf.json", crate, test = true);
     let manager: AppManager<Wry> = AppManager::with_handlers(
       context,
       PluginStore::default(),
@@ -644,6 +704,7 @@ mod test {
       Default::default(),
       Default::default(),
       (None, "".into()),
+      crate::generate_invoke_key().unwrap(),
     );
 
     #[cfg(custom_protocol)]
@@ -739,9 +800,7 @@ mod test {
     assert_eq!(
       received.len(),
       expected.len(),
-      "received {:?} `{kind}` events but expected {:?}",
-      received,
-      expected
+      "received {received:?} `{kind}` events but expected {expected:?}"
     );
   }
 
@@ -762,7 +821,11 @@ mod test {
     run_emit_test("emit (webview_window)", webview_window, &rx);
   }
 
-  fn run_emit_test<M: Manager<MockRuntime>>(kind: &str, m: M, rx: &Receiver<(&str, String)>) {
+  fn run_emit_test<M: Manager<MockRuntime> + Emitter<MockRuntime>>(
+    kind: &str,
+    m: M,
+    rx: &Receiver<(&str, String)>,
+  ) {
     let mut received = Vec::new();
     let payload = "global-payload";
     m.emit(TEST_EVENT_NAME, payload).unwrap();
@@ -835,7 +898,7 @@ mod test {
     );
   }
 
-  fn run_emit_to_test<M: Manager<MockRuntime>>(
+  fn run_emit_to_test<M: Manager<MockRuntime> + Emitter<MockRuntime>>(
     kind: &str,
     m: &M,
     window: &Window<MockRuntime>,

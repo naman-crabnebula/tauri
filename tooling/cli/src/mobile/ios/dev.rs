@@ -148,9 +148,9 @@ fn run_command(options: Options, noise_level: NoiseLevel) -> Result<()> {
     .join(config.scheme())
     .join("Info.plist");
   merge_plist(
-    &[
-      tauri_path.join("Info.plist"),
-      tauri_path.join("Info.ios.plist"),
+    vec![
+      tauri_path.join("Info.plist").into(),
+      tauri_path.join("Info.ios.plist").into(),
     ],
     &info_plist_path,
   )?;
@@ -234,7 +234,7 @@ fn run_dev(
           }
           Err(e) => {
             crate::dev::kill_before_dev_process();
-            Err(e.into())
+            Err(e)
           }
         }
       } else {
@@ -244,17 +244,12 @@ fn run_dev(
   )
 }
 
-#[derive(Debug, thiserror::Error)]
-enum RunError {
-  #[error("{0}")]
-  RunFailed(String),
-}
 fn run(
   device: &Device<'_>,
   options: MobileOptions,
   config: &AppleConfig,
   env: &Env,
-) -> Result<DevChild, RunError> {
+) -> crate::Result<DevChild> {
   let profile = if options.debug {
     Profile::Debug
   } else {
@@ -270,5 +265,5 @@ fn run(
       profile,
     )
     .map(DevChild::new)
-    .map_err(|e| RunError::RunFailed(e.to_string()))
+    .map_err(Into::into)
 }

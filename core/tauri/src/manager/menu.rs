@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-  menu::{Menu, MenuId},
+  menu::{Menu, MenuEvent, MenuId},
   AppHandle, Runtime, Window,
 };
 
@@ -54,6 +54,7 @@ impl<R: Runtime> MenuManager<R> {
   pub(crate) fn prepare_window_menu_creation_handler(
     &self,
     window_menu: Option<&crate::window::WindowMenu<R>>,
+    #[allow(unused)] theme: Option<tauri_utils::Theme>,
   ) -> Option<impl Fn(tauri_runtime::window::RawWindow<'_>)> {
     {
       if let Some(menu) = window_menu {
@@ -71,7 +72,12 @@ impl<R: Runtime> MenuManager<R> {
       let menu = menu.menu.clone();
       Some(move |raw: tauri_runtime::window::RawWindow<'_>| {
         #[cfg(target_os = "windows")]
-        let _ = menu.inner().init_for_hwnd(raw.hwnd as _);
+        {
+          let theme = theme
+            .map(crate::menu::map_to_menu_theme)
+            .unwrap_or(muda::MenuTheme::Auto);
+          let _ = menu.inner().init_for_hwnd_with_theme(raw.hwnd as _, theme);
+        }
         #[cfg(any(
           target_os = "linux",
           target_os = "dragonfly",
@@ -86,5 +92,13 @@ impl<R: Runtime> MenuManager<R> {
     } else {
       None
     }
+  }
+
+  pub fn on_menu_event<F: Fn(&AppHandle<R>, MenuEvent) + Send + Sync + 'static>(&self, handler: F) {
+    self
+      .global_event_listeners
+      .lock()
+      .unwrap()
+      .push(Box::new(handler));
   }
 }

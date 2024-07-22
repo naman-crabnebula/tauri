@@ -27,14 +27,13 @@ use super::{super::common, freedesktop};
 use crate::Settings;
 use anyhow::Context;
 use flate2::{write::GzEncoder, Compression};
-use heck::AsKebabCase;
 use tar::HeaderMode;
 use walkdir::WalkDir;
 
 use std::{
-  fs::{self, File},
+  fs::{self, File, OpenOptions},
   io::{self, Write},
-  os::unix::fs::MetadataExt,
+  os::unix::fs::{MetadataExt, OpenOptionsExt},
   path::{Path, PathBuf},
 };
 
@@ -51,7 +50,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
   };
   let package_base_name = format!(
     "{}_{}_{}",
-    settings.main_binary_name(),
+    settings.product_name(),
     settings.version_string(),
     arch
   );
@@ -76,6 +75,7 @@ pub fn bundle_project(settings: &Settings) -> crate::Result<Vec<PathBuf>> {
   let control_dir = package_dir.join("control");
   generate_control_file(settings, arch, &control_dir, &data_dir)
     .with_context(|| "Failed to create control file")?;
+  generate_scripts(settings, &control_dir).with_context(|| "Failed to create control scripts")?;
   generate_md5sums(&control_dir, &data_dir).with_context(|| "Failed to create md5sums file")?;
 
   // Generate `debian-binary` file; see
@@ -157,7 +157,8 @@ fn generate_control_file(
   // https://www.debian.org/doc/debian-policy/ch-controlfields.html
   let dest_path = control_dir.join("control");
   let mut file = common::create_file(&dest_path)?;
-  writeln!(file, "Package: {}", AsKebabCase(settings.product_name()))?;
+  let package = heck::AsKebabCase(settings.product_name());
+  writeln!(file, "Package: {}", package)?;
   writeln!(file, "Version: {}", settings.version_string())?;
   writeln!(file, "Architecture: {arch}")?;
   // Installed-Size must be divided by 1024, see https://www.debian.org/doc/debian-policy/ch-controlfields.html#installed-size
@@ -174,12 +175,40 @@ fn generate_control_file(
     writeln!(file, "Priority: optional")?;
   }
 
-  if !settings.homepage_url().is_empty() {
-    writeln!(file, "Homepage: {}", settings.homepage_url())?;
+  if let Some(homepage) = settings.homepage_url() {
+    writeln!(file, "Homepage: {}", homepage)?;
   }
+
   let dependencies = settings.deb().depends.as_ref().cloned().unwrap_or_default();
   if !dependencies.is_empty() {
     writeln!(file, "Depends: {}", dependencies.join(", "))?;
+  }
+  let provides = settings
+    .deb()
+    .provides
+    .as_ref()
+    .cloned()
+    .unwrap_or_default();
+  if !provides.is_empty() {
+    writeln!(file, "Provides: {}", provides.join(", "))?;
+  }
+  let conflicts = settings
+    .deb()
+    .conflicts
+    .as_ref()
+    .cloned()
+    .unwrap_or_default();
+  if !conflicts.is_empty() {
+    writeln!(file, "Conflicts: {}", conflicts.join(", "))?;
+  }
+  let replaces = settings
+    .deb()
+    .replaces
+    .as_ref()
+    .cloned()
+    .unwrap_or_default();
+  if !replaces.is_empty() {
+    writeln!(file, "Replaces: {}", replaces.join(", "))?;
   }
   let mut short_description = settings.short_description().trim();
   if short_description.is_empty() {
@@ -199,6 +228,41 @@ fn generate_control_file(
     }
   }
   file.flush()?;
+  Ok(())
+}
+
+fn generate_scripts(settings: &Settings, control_dir: &Path) -> crate::Result<()> {
+  if let Some(script_path) = &settings.deb().pre_install_script {
+    let dest_path = control_dir.join("preinst");
+    create_script_file_from_path(script_path, &dest_path)?
+  }
+
+  if let Some(script_path) = &settings.deb().post_install_script {
+    let dest_path = control_dir.join("postinst");
+    create_script_file_from_path(script_path, &dest_path)?
+  }
+
+  if let Some(script_path) = &settings.deb().pre_remove_script {
+    let dest_path = control_dir.join("prerm");
+    create_script_file_from_path(script_path, &dest_path)?
+  }
+
+  if let Some(script_path) = &settings.deb().post_remove_script {
+    let dest_path = control_dir.join("postrm");
+    create_script_file_from_path(script_path, &dest_path)?
+  }
+  Ok(())
+}
+
+fn create_script_file_from_path(from: &PathBuf, to: &PathBuf) -> crate::Result<()> {
+  let mut from = File::open(from)?;
+  let mut file = OpenOptions::new()
+    .create(true)
+    .truncate(true)
+    .write(true)
+    .mode(0o755)
+    .open(to)?;
+  std::io::copy(&mut from, &mut file)?;
   Ok(())
 }
 
